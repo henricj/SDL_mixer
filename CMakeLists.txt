@@ -20,12 +20,15 @@ option(SUPPORT_OPUS "Support loading OGG Opus music via libopusfile" OFF)
 option(SUPPORT_MP3_MPG123 "Support loading MP3 music via MPG123" OFF)
 option(SUPPORT_MOD_MODPLUG "Support loading MOD music via modplug" OFF)
 option(SUPPORT_MID_TIMIDITY "Support loading MIDI music via TiMidity" ON)
+option(SUPPORT_MID_NATIVE "Support loading MIDI music via native OS" ON)
 
-option(BUILD_SHARED_LIBS "Enable shared library" ON)
+#option(BUILD_SHARED_LIBS "Enable shared library" ON)
+
+find_package(SDL2 CONFIG REQUIRED)
 
 if (NOT (TARGET SDL2::SDL2 OR TARGET SDL2::SDL2-static))
-    find_package(SDL2 REQUIRED)
     if(NOT TARGET SDL2::SDL2)
+        message(STATUS "Falling back to legacy SDL2")
         # SDL < 2.0.12
         add_library(SDL2::SDL2 INTERFACE IMPORTED)
         set_target_properties(SDL2::SDL2 PROPERTIES
@@ -71,17 +74,20 @@ set(DYLIB_CURRENT_VERSION "${DYLIB_CURRENT_VERSION_MAJOR}.${DYLIB_CURRENT_VERSIO
 # For historical reasons this is 3.0.0 rather than the expected 1.0.0
 set(DYLIB_COMPATIBILITY_VERSION "3.0.0")
 
-# For the static assertions in mixer.c
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DSDL_BUILD_MAJOR_VERSION=${MAJOR_VERSION}")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DSDL_BUILD_MINOR_VERSION=${MINOR_VERSION}")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DSDL_BUILD_MICRO_VERSION=${MICRO_VERSION}")
-
 include_directories(include src src/codecs)
 
 add_library(SDL2_mixer)
 add_library(SDL2::mixer ALIAS SDL2_mixer)
 
+# For the static assertions in mixer.c
+target_compile_definitions(SDL2_mixer PRIVATE
+    SDL_BUILD_MAJOR_VERSION=${MAJOR_VERSION}
+    SDL_BUILD_MINOR_VERSION=${MINOR_VERSION}
+    SDL_BUILD_MICRO_VERSION=${MICRO_VERSION}
+)
+
 if(SUPPORT_MID_TIMIDITY)
+    message(STATUS "Including TiMidity")
     set(TIMIDITY_SRCS
         src/codecs/timidity/common.c
         src/codecs/timidity/instrum.c
@@ -91,8 +97,20 @@ if(SUPPORT_MID_TIMIDITY)
         src/codecs/timidity/readmidi.c
         src/codecs/timidity/resample.c
         src/codecs/timidity/tables.c
-        src/codecs/timidity/timidity.c
+        src/codecs/timidity/timidity.c)
+endif()
+
+if(SUPPORT_MID_NATIVE)
+    message(STATUS "Supporting native MIDI")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_MID_NATIVE)
+    set(NATIVE_MIDI_SRCS
+        src/codecs/native_midi/native_midi_common.c
     )
+    if(WIN32)
+        list(APPEND NATIVE_MIDI_SRCS
+            src/codecs/native_midi/native_midi_win32.c
+        )
+    endif()
 endif()
 
 target_sources(SDL2_mixer PRIVATE
@@ -120,10 +138,12 @@ target_sources(SDL2_mixer PRIVATE
         src/codecs/music_timidity.c
         src/codecs/music_nativemidi.c
         ${TIMIDITY_SRCS}
+        ${NATIVE_MIDI_SRCS}
 )
 
 if (SUPPORT_WAV)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_WAV)
+    message(STATUS "Supporting WAV")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_WAV)
 endif()
 
 if (SUPPORT_OGG OR SUPPORT_FLAC OR SUPPORT_OPUS)
@@ -131,20 +151,23 @@ if (SUPPORT_OGG OR SUPPORT_FLAC OR SUPPORT_OPUS)
 endif()
 
 if (SUPPORT_FLAC)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_FLAC_LIBFLAC)
+    message(STATUS "Supporting Ogg FLAC")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_FLAC_LIBFLAC)
     add_subdirectory(external/flac)
     target_include_directories(SDL2_mixer PRIVATE external/flac/include)
     target_link_libraries(SDL2_mixer PRIVATE FLAC)
 endif()
 
 if (SUPPORT_OGG)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_OGG)
+    message(STATUS "Supporting Ogg Vorbis")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_OGG)
     add_subdirectory(external/vorbis)
     target_include_directories(SDL2_mixer PRIVATE external/vorbis/include)
     target_link_libraries(SDL2_mixer PRIVATE vorbisfile vorbis ogg)
 endif()
 
 if (SUPPORT_OPUS)
+    message(STATUS "Supporting Ogg Opus")
     target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_OPUS -DOPUSFILE_HEADER=<opusfile.h>)
     set(OP_DISABLE_HTTP ON CACHE BOOL "Disable HTTP support")
     set(OP_DISABLE_EXAMPLES ON CACHE BOOL "Do not build example applications")
@@ -155,21 +178,24 @@ if (SUPPORT_OPUS)
 endif()
 
 if (SUPPORT_MP3_MPG123)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_MP3_MPG123)
+    message(STATUS "Supporting MPG123")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_MP3_MPG123)
     add_subdirectory(external/mpg123/ports/cmake)
     target_include_directories(SDL2_mixer PRIVATE external/mpg123/ports/cmake/src/libmpg123)
     target_link_libraries(SDL2_mixer PRIVATE libmpg123)
 endif()
 
 if (SUPPORT_MOD_MODPLUG)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_MOD_MODPLUG -DMODPLUG_HEADER=<modplug.h>)
+    message(STATUS "Supporting modplug")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_MOD_MODPLUG MODPLUG_HEADER=<modplug.h>)
     add_subdirectory(external/libmodplug)
     target_include_directories(SDL2_mixer PRIVATE external/libmodplug/src)
     target_link_libraries(SDL2_mixer PRIVATE modplug)
 endif()
 
 if (SUPPORT_MID_TIMIDITY)
-    target_compile_definitions(SDL2_mixer PRIVATE -DMUSIC_MID_TIMIDITY)
+    message(STATUS "Supporting TiMidity")
+    target_compile_definitions(SDL2_mixer PRIVATE MUSIC_MID_TIMIDITY)
 endif()
 
 if(BUILD_SHARED_LIBS)
@@ -199,8 +225,4 @@ endif()
 
 target_include_directories(SDL2_mixer PUBLIC include)
 
-if (BUILD_SHARED_LIBS)
-  target_link_libraries(SDL2_mixer PRIVATE SDL2::SDL2)
-else()
-  target_link_libraries(SDL2_mixer PRIVATE SDL2::SDL2-static)
-endif()
+target_link_libraries(SDL2_mixer PRIVATE SDL2::SDL2)
