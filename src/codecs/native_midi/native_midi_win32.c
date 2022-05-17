@@ -23,7 +23,9 @@
 /* everything below is currently one very big bad hack ;) Proff */
 
 #if __WIN32__
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 
 #include <windows.h>
 #include <mmsystem.h>
